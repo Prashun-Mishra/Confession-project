@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>New Year Confessions</title>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f4f9;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+        }
+
+        .container {
+            background-color: #fff;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+            width: 100%;
+            max-width: 500px;
+            text-align: center;
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 20px;
+        }
+
+        form input, form textarea {
+            width: 100%;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+            border: 1px solid #ccc;
+            font-size: 16px;
+        }
+
+        form textarea {
+            min-height: 100px;
+            resize: vertical;
+        }
+
+        form button {
+            padding: 12px 24px;
+            background-color: #5c6bc0;
+            color: #fff;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: background-color 0.3s ease;
+        }
+
+        form button:hover {
+            background-color: #3f4cbb;
+        }
+
+        form button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+
+        #confessionsDisplay {
+            margin-top: 30px;
+            text-align: left;
+            max-height: 400px;
+            overflow-y: auto;
+            border-top: 2px solid #ccc;
+            padding-top: 10px;
+        }
+
+        .confession {
+            background-color: #e8eaf6;
+            margin: 10px 0;
+            padding: 15px;
+            border-radius: 5px;
+            border-left: 5px solid #5c6bc0;
+            word-wrap: break-word;
+        }
+
+        .confession .name {
+            font-weight: bold;
+            color: #333;
+        }
+
+        .confession .age {
+            color: #666;
+            font-size: 0.9em;
+            margin: 5px 0;
+        }
+
+        .confession .text {
+            margin-top: 10px;
+            line-height: 1.4;
+        }
+
+        .error {
+            color: #d32f2f;
+            margin-top: 10px;
+            font-size: 0.9em;
+        }
+
+        .success {
+            color: #388e3c;
+            margin-top: 10px;
+            font-size: 0.9em;
+        }
+
+        #loadingSpinner {
+            display: none;
+            margin: 10px auto;
+        }
+
+        @media (max-width: 600px) {
+            .container {
+                padding: 20px;
+            }
+
+            h1 {
+                font-size: 24px;
+            }
+
+            #confessionsDisplay {
+                max-height: 300px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>New Year Confessions</h1>
+        <form id="confessionForm">
+            <input type="text" id="name" placeholder="Your Name" maxlength="50" required>
+            <input type="number" id="age" placeholder="Your Age" min="13" max="120" required>
+            <textarea id="confession" placeholder="Share your confession..." maxlength="500" required></textarea>
+            <div id="charCount"></div>
+            <button type="submit" id="submitButton">Submit Confession</button>
+        </form>
+        <div id="statusMessage"></div>
+        <div id="loadingSpinner">Submitting...</div>
+        <div id="confessionsDisplay"></div>
+    </div>
+
+    <script>
+        // Initialize Firebase with your config
+        const firebaseConfig = {
+            apiKey: "YOUR_API_KEY",
+            authDomain: "YOUR_AUTH_DOMAIN",
+            projectId: "YOUR_PROJECT_ID",
+            storageBucket: "YOUR_STORAGE_BUCKET",
+            messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
+            appId: "YOUR_APP_ID"
+        };
+
+        // Initialize Firebase
+        firebase.initializeApp(firebaseConfig);
+        const database = firebase.database();
+
+        // DOM Elements
+        const confessionForm = document.getElementById('confessionForm');
+        const nameInput = document.getElementById('name');
+        const ageInput = document.getElementById('age');
+        const confessionInput = document.getElementById('confession');
+        const submitButton = document.getElementById('submitButton');
+        const statusMessage = document.getElementById('statusMessage');
+        const loadingSpinner = document.getElementById('loadingSpinner');
+        const confessionsDisplay = document.getElementById('confessionsDisplay');
+        const charCount = document.getElementById('charCount');
+
+        // Input validation and character count
+        confessionInput.addEventListener('input', function() {
+            const remaining = 500 - this.value.length;
+            charCount.textContent = `${remaining} characters remaining`;
+        });
+
+        // Form submission
+        confessionForm.addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            // Basic validation
+            if (!nameInput.value.trim() || !ageInput.value || !confessionInput.value.trim()) {
+                showStatus('Please fill in all fields', 'error');
+                return;
+            }
+
+            const age = parseInt(ageInput.value);
+            if (age < 13 || age > 120) {
+                showStatus('Please enter a valid age between 13 and 120', 'error');
+                return;
+            }
+
+            // Disable form during submission
+            toggleForm(false);
+            
+            try {
+                const confessionData = {
+                    name: sanitizeInput(nameInput.value),
+                    age: age,
+                    confession: sanitizeInput(confessionInput.value),
+                    timestamp: firebase.database.ServerValue.TIMESTAMP
+                };
+
+                await database.ref('confessions').push(confessionData);
+                
+                showStatus('Confession submitted successfully!', 'success');
+                confessionForm.reset();
+                charCount.textContent = '';
+            } catch (error) {
+                console.error('Error submitting confession:', error);
+                showStatus('Error submitting confession. Please try again.', 'error');
+            } finally {
+                toggleForm(true);
+            }
+        });
+
+        // Fetch and display confessions
+        database.ref('confessions').orderByChild('timestamp').limitToLast(50).on('child_added', function(snapshot) {
+            const confession = snapshot.val();
+            displayConfession(confession);
+        });
+
+        // Helper functions
+        function sanitizeInput(input) {
+            const div = document.createElement('div');
+            div.textContent = input;
+            return div.innerHTML;
+        }
+
+        function showStatus(message, type) {
+            statusMessage.textContent = message;
+            statusMessage.className = type;
+            setTimeout(() => {
+                statusMessage.textContent = '';
+                statusMessage.className = '';
+            }, 3000);
+        }
+
+        function toggleForm(enabled) {
+            submitButton.disabled = !enabled;
+            loadingSpinner.style.display = enabled ? 'none' : 'block';
+            nameInput.disabled = !enabled;
+            ageInput.disabled = !enabled;
+            confessionInput.disabled = !enabled;
+        }
+
+        function displayConfession(confession) {
+            const confessionElement = document.createElement('div');
+            confessionElement.classList.add('confession');
+            
+            const date = new Date(confession.timestamp);
+            const formattedDate = date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
+            
+            confessionElement.innerHTML = `
+                <div class="name">${confession.name}</div>
+                <div class="age">${confession.age} years old</div>
+                <div class="text">${confession.confession}</div>
+                <div class="date" style="color: #666; font-size: 0.8em; margin-top: 5px;">${formattedDate}</div>
+            `;
+            
+            confessionsDisplay.insertBefore(confessionElement, confessionsDisplay.firstChild);
+        }
+    </script>
+</body>
+</html>
